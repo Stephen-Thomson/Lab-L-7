@@ -115,14 +115,27 @@ const App: React.FC = () => {
       // value into a ToDo Bitcoin token, only the same user can get it back
       // later on, after creation.
 
-      // 1. TODO: Encrypt task description
+      // 1. Encrypt task description
+      const encryptedTask = await encrypt({
+        plaintext: Buffer.from(createTask),
+        protocolID: [0, 'todo list'],
+        keyID: '1',
+        returnType: 'string',
+      })
 
       // Here's the part where we create the new Bitcoin token.
       // This uses a library called PushDrop, which lets you attach data
       // payloads to Bitcoin token outputs.Then, you can redeem / unlock the
       // tokens later.
 
-      // 2. TODO: Create pushdrop ToDo token with encrypted task content.
+      // 2. Create PushDrop ToDo token with encrypted task content.
+      const bitcoinOutputScript = await pushdrop.create({
+        fields: [
+          Buffer.from(encryptedTask),
+        ],
+        protocolID: 'todo task',
+        keyID: '1',
+      })
 
       // Now that we have the output script for our ToDo Bitcoin token, we can
       // add it to a Bitcoin transaction (a.k.a. "Action"), and register the
@@ -130,27 +143,35 @@ const App: React.FC = () => {
       // that a user does, and all Actions take the form of Bitcoin
       // transactions.
 
-      // 3. TODO: Create new action 
+      // 3. Create new action 
+      const newTaskToken = await createAction({
+        outputs: [{
+          satoshis: createAmount,
+          script: bitcoinOutputScript,
+          basket: 'todo task'
+        }],
+        description: 'Create a new ToDo task token',
+      })
 
       // Now, we just let the user know the good news! Their token has been
       // created, and added to the list.
       toast.dark('Task successfully created!')
 
       // --------------------------------------- Uncomment after completing TODOs above --------------------------------------------
-      // const txid = newToDoToken.txid ?? '' // Use nullish coalescing operator
-      // setTasks((originalTasks) => ([
-      //   {
-      //     task: createTask,
-      //     sats: Number(createAmount),
-      //     token: {
-      //       ...newToDoToken,
-      //       lockingScript: bitcoinOutputScript,
-      //       txid,
-      //       outputIndex: 0
-      //     } as Token // Explicitly typing the token object
-      //   },
-      //   ...originalTasks
-      // ]))
+      const txid = newTaskToken.txid ?? '' // Use nullish coalescing operator
+      setTasks((originalTasks) => ([
+        {
+          task: createTask,
+          sats: Number(createAmount),
+          token: {
+            ...newTaskToken,
+            lockingScript: bitcoinOutputScript,
+            txid,
+            outputIndex: 0
+          } as Token // Explicitly typing the token object
+        },
+        ...originalTasks
+      ]))
       setCreateTask('')
       setCreateAmount(1000)
       setCreateOpen(false)
@@ -172,13 +193,21 @@ const App: React.FC = () => {
       // Start a loading bar to let the user know we're working on it.
       setCompleteLoading(true)
 
-      // Here, we're using the PushDrop library to unlcok / redeem the PushDrop
+      // Here, we're using the PushDrop library to unlock / redeem the PushDrop
       // token that was previously created. By providing this information,
       // PushDrop can "unlock" and spend the token. When the token gets spent,
       // the user gets their bitcoins back, and the ToDo token is removed from
       // the list.
 
-      // 4. TODO: Redeem ToDo token using PushDrop
+      // 4. Redeem ToDo token using PushDrop
+      const taskUnlockScript = await pushdrop.redeem({
+        protocolID: 'todo task',
+        keyID: '1',
+        prevTxId: selectedTask?.token.txid,
+        outputIndex: 0,
+        lockingScript: selectedTask?.token.lockingScript,
+        outputAmount: selectedTask?.sats,
+      })
 
       // Let the user know what's going on, and why they're getting some
       // Bitcoins back.
@@ -198,6 +227,18 @@ const App: React.FC = () => {
       }
 
       // 5. TODO: Create a new action for the redeem
+      await createAction({
+        inputs: {
+          [selectedTask.token.txid]: {
+            ...selectedTask.token,
+            outputsToRedeem: [{
+              index: 0,
+              unlockingScript: taskUnlockScript,
+            }]
+          }
+        },
+        description: 'Redeeming a ToDo task token',
+      })
 
       // Finally, we let the user know about the good news, and that their
       // completed ToDo token has been removed from their list! The satoshis
@@ -230,12 +271,14 @@ const App: React.FC = () => {
         // completed.
         const tasksFromBasket = await getTransactionOutputs({
           // The name of the basket where the tokens are kept
-          basket: 'todo tokens',
+          basket: 'todo task',
           // Only get tokens that are active on the list, not already complete
           spendable: true,
           // Also get the envelope needed if we complete (spend) the ToDo token
           includeEnvelope: true
         })
+
+        console.log(tasksFromBasket)
 
         // Now that we have the data (in the tasksFromBasket variable), we will
         // decode and decrypt the tasks we got from the basket.When the tasks
@@ -245,7 +288,7 @@ const App: React.FC = () => {
           try {
             // Each "task" from the array has some useful information that we
             // can decode and decrypt, so that the task can be shown on the
-            // screen.Other fields are useful if we want to spend the token
+            // screen. Other fields are useful if we want to spend the token
             // later.
 
             // We can decode the locking script (a.k.a. output script) back
@@ -253,12 +296,16 @@ const App: React.FC = () => {
             // token was created.
 
             // 5. TODO: Decode ToDo pushdrop token.
+            const decodedTask = await pushdrop.decode({
+              script: task.outputScript,
+              fieldFormat: 'utf8'
+            })
 
             // As you can tell if you look at the fields we sent into
             // PushDrop when the token was originally created, the encrypted
             // copy of the task is the second field from the fields array,
             // after the TODO_PROTO_ADDR prefix.
-            const encryptedTask = decodedTask.fields[1]
+            const encryptedTask = decodedTask.fields[0]
 
             // We'll pass in the encrypted value from the token, and
             // use the "todo list" protocol and key ID for decrypting.
@@ -267,6 +314,12 @@ const App: React.FC = () => {
             // protocolID or keyID would result in an error.
 
             // 6. TODO: Decrypt encrypted task description.
+            const decryptedTask = await decrypt({
+              ciphertext: encryptedTask,
+              protocolID: [0, 'todo list'],
+              keyID: '1',
+              returnType: 'string',
+            })
 
             // Now we can return the decrypted version of the task, along
             // with some information about the token.
