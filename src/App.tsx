@@ -226,7 +226,7 @@ const App: React.FC = () => {
         throw new Error('Task data is incomplete or undefined.')
       }
 
-      // 5. TODO: Create a new action for the redeem
+      // 5. Create a new action for the redeem
       await createAction({
         inputs: {
           [selectedTask.token.txid]: {
@@ -295,7 +295,7 @@ const App: React.FC = () => {
             // into the "fields" that we originally gave to PushDrop when the
             // token was created.
 
-            // 5. TODO: Decode ToDo pushdrop token.
+            // 5. Decode ToDo pushdrop token.
             const decodedTask = await pushdrop.decode({
               script: task.outputScript,
               fieldFormat: 'utf8'
@@ -313,7 +313,7 @@ const App: React.FC = () => {
             // encrypt and decrypt any data. Decrypting with the wrong
             // protocolID or keyID would result in an error.
 
-            // 6. TODO: Decrypt encrypted task description.
+            // 6. Decrypt encrypted task description.
             const decryptedTask = await decrypt({
               ciphertext: encryptedTask,
               protocolID: [0, 'todo list'],
